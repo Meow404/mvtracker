@@ -39,6 +39,33 @@ def main():
         help="Use random query points instead of demo ones.",
     )
     p.add_argument(
+        "--cameras",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Which camera view indices to use (0-based). "
+            "E.g. --cameras 0 2 to use only cameras 0 and 2. "
+            "If not specified, all cameras in the data sample are used."
+        ),
+    )
+    p.add_argument(
+        "--repeat-frames",
+        type=int,
+        default=None,
+        help=(
+            "Number of frames to select from the start of the sequence. "
+            "These frames will be tiled (repeated) to fill a longer sequence. "
+            "E.g. --repeat-frames 100 --repeat-count 1000 tiles the first 100 frames 1000 times."
+        ),
+    )
+    p.add_argument(
+        "--repeat-count",
+        type=int,
+        default=1,
+        help="How many times to repeat the selected frames (requires --repeat-frames).",
+    )
+    p.add_argument(
         "--rrd",
         default="mvtracker_demo.rrd",
         help=(
@@ -68,6 +95,55 @@ def main():
     intrs = torch.from_numpy(sample["intrs"]).float()
     extrs = torch.from_numpy(sample["extrs"]).float()
     query_points = torch.from_numpy(sample["query_points"]).float()
+
+    num_views = rgbs.shape[0]
+
+    # Select camera subset if specified
+    if args.cameras is not None:
+        camera_indices = sorted(set(args.cameras))
+        for idx in camera_indices:
+            if idx < 0 or idx >= num_views:
+                raise ValueError(
+                    f"Camera index {idx} is out of range. "
+                    f"Available cameras: 0..{num_views - 1} ({num_views} views)."
+                )
+        print(f"Using cameras {camera_indices} out of {num_views} available views.")
+        cam_idx = torch.tensor(camera_indices, dtype=torch.long)
+        rgbs = rgbs[cam_idx]
+        depths = depths[cam_idx]
+        intrs = intrs[cam_idx]
+        extrs = extrs[cam_idx]
+        num_views = len(camera_indices)
+    else:
+        camera_indices = list(range(num_views))
+        print(f"Using all {num_views} cameras.")
+
+    if args.repeat_frames is not None:
+        num_frames_available = rgbs.shape[1]
+        n = min(args.repeat_frames, num_frames_available)
+        repeat_count = max(1, args.repeat_count)
+        print(
+            f"Selecting first {n} frames (of {num_frames_available}) and "
+            f"repeating {repeat_count}x → {n * repeat_count} total frames."
+        )
+        # rgbs/depths shape: [V, T, ...], intrs/extrs shape: [V, T, ...]
+        rgbs = rgbs[:, :n].repeat(1, repeat_count, *([1] * (rgbs.dim() - 2)))
+        depths = depths[:, :n].repeat(1, repeat_count, *([1] * (depths.dim() - 2)))
+        intrs = intrs[:, :n].repeat(1, repeat_count, *([1] * (intrs.dim() - 2)))
+        extrs = extrs[:, :n].repeat(1, repeat_count, *([1] * (extrs.dim() - 2)))
+
+    # pseudo_confs = torch.ones_like(depths) * 10
+    # scale, translation = compute_auto_scene_normalization(depths, pseudo_confs, extrs, intrs)
+    # rot = torch.eye(3, dtype=torch.float32)
+    # depths, extrs, query_points, _, _ = transform_scene(
+    #     transformation_scale=scale,
+    #     transformation_rotation=rot,
+    #     transformation_translation=translation,
+    #     depth=depths,
+    #     extrs=extrs,
+    #     query_points=query_points,
+    #     traj3d_world=None
+    # )
 
     # Optionally, sample random queries in a cylinder of radius 12, height [-1, +10] and replace the demo queries
     if args.random_query_points:

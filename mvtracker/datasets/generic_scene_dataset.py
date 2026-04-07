@@ -341,7 +341,8 @@ def compute_auto_scene_normalization(
 
     # --- Compute scale ---
     if rescale_by_camera_radius:
-        cam_centers = extrs[:, 0, :, 3]  # (V, 3)
+        # cam_centers = extrs[:, 0, :, 3]  # (V, 3)
+        cam_centers = extrs_inv[:, 0, :3, 3]  # (V, 3
         cam_centers_centered = cam_centers - centroid  # shift
         cam_centers_centered[:, 2] -= floor_z  # lift
         cam_dists = cam_centers_centered.norm(dim=1)
